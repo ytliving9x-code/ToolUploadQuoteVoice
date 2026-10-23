@@ -220,7 +220,7 @@ st.markdown(
 if "quote_text" not in st.session_state:
     st.session_state.quote_text = "Hành trình vạn dặm luôn bắt đầu bằng một bước chân đầu tiên."
 if "selected_voice" not in st.session_state:
-    st.session_state.selected_voice = "Charon"
+    st.session_state.selected_voice = "NamMinh"
 if "bg_media" not in st.session_state:
     st.session_state.bg_media = "assets/backgrounds/default_night.jpg"
 if "signature" not in st.session_state:
@@ -241,9 +241,9 @@ if "cached_voice_dur" not in st.session_state:
 # ==============================================================================
 st.markdown(
     """
-    <div class="hero-top-badge">🎙️ Gemini AI Voice • TikTok 9:16 Video Engine</div>
+    <div class="hero-top-badge">🎙️ Voice Đọc Quote Truyền Cảm • Chữ Động Khớp Voice 9:16</div>
     <div class="main-title">TikTok Quote Studio with Voice</div>
-    <div class="subtitle-text">Tự động sản xuất video Quote kèm giọng đọc tiếng Việt chân thật (Gemini TTS) chuẩn khung hình TikTok.</div>
+    <div class="subtitle-text">Tự động sản xuất video Quote kèm giọng đọc tiếng Việt truyền cảm, chữ xuất hiện nhịp nhàng khớp chuẩn theo voice.</div>
     """,
     unsafe_allow_html=True,
 )
@@ -298,7 +298,7 @@ with col_controls:
             """
             <div class="step-header">
                 <span class="step-num">2</span>
-                <span class="step-title">Giọng Đọc AI (Gemini 3.8 Flash TTS)</span>
+                <span class="step-title">Giọng Đọc Tiếng Việt (Nam Minh, Charon, Orus...)</span>
             </div>
             """,
             unsafe_allow_html=True,
@@ -434,9 +434,9 @@ with col_controls:
         )
 
         st.markdown('<div class="btn-hero">', unsafe_allow_html=True)
-        btn_render = st.button("🎬 TẠO BẢN XEM THỬ VIDEO (CÓ TIẾNG & CHỮ)", type="primary", use_container_width=True)
+        btn_render = st.button("🎬 TẠO VIDEO CHỮ ĐỘNG KHỚP THEO VOICE", type="primary", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
-        st.caption("💡 Bấm nút trên để ghép giọng đọc và nhạc nền. Video hoàn chỉnh sẽ phát ngay trong khung điện thoại bên phải để bạn duyệt trước khi tải!")
+        st.caption("💡 Chữ sẽ tự động xuất hiện theo từng nhịp giọng đọc và phát trực tiếp ngay trong khung điện thoại bên phải!")
 
         if btn_render:
             bg_target = st.session_state.bg_media
@@ -450,7 +450,7 @@ with col_controls:
                 timestamp = int(time.time())
                 out_vid = out_folder / f"quote_voice_{st.session_state.selected_voice.lower()}_{timestamp}.mp4"
 
-                with st.spinner("Đang xử lý: Tạo giọng đọc Gemini -> Ghép typography chống lóa -> Hòa âm FFmpeg..."):
+                with st.spinner("Đang xử lý: Tạo giọng đọc truyền cảm -> Đồng bộ chữ động Kinetic -> Hòa âm FFmpeg..."):
                     try:
                         # 1. Đảm bảo có file giọng đọc
                         voice_file, voice_dur = synthesize_voice(

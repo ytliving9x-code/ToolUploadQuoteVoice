@@ -10,39 +10,67 @@ from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger("quote_voice.voice_service")
 
-# Danh mục các giọng đọc Gemini tiếng Việt tiêu chuẩn
+# Danh mục các giọng đọc tiếng Việt chuyên nghiệp cho Video Quote
 AVAILABLE_VOICES: Dict[str, Dict[str, str]] = {
-    "Charon": {
+    "NamMinh": {
+        "engine": "edge_tts",
+        "voice_id": "vi-VN-NamMinhNeural",
         "gender": "Nam",
-        "title": "Charon (Nam Trầm Dày)",
-        "tag": "⭐ Khuyên dùng cho Triết lý / Lãnh đạo",
-        "desc": "Trầm ấm, uy lực, phong thái đĩnh đạc, phát thanh viên.",
+        "title": "Nam Minh (Nam Trầm Ấm - Chuẩn Quote)",
+        "tag": "⭐ Khuyên dùng #1 cho Quote TikTok",
+        "desc": "Trầm ấm, đĩnh đạc, truyền cảm hứng, chuẩn mực video triết lý.",
+        "prompt_style": "chất giọng nam trầm ấm, đĩnh đạc, truyền cảm hứng và ngắt nghỉ sâu lắng"
+    },
+    "Charon": {
+        "engine": "gemini",
+        "voice_id": "Charon",
+        "gender": "Nam",
+        "title": "Charon (Nam Trầm Dày - Gemini AI)",
+        "tag": "Triết lý / Lãnh đạo",
+        "desc": "Trầm ấm, uy lực, phong thái phát thanh viên đĩnh đạc.",
         "prompt_style": "chất giọng nam trầm, phong thái đĩnh đạc, đằm thắm, truyền cảm hứng và uy quyền"
     },
-    "Kore": {
-        "gender": "Nữ",
-        "title": "Kore (Nữ Trầm Ấm)",
-        "tag": "⭐ Khuyên dùng cho Giọng Nữ",
-        "desc": "Trầm ấm, sâu lắng, ngắt nghỉ tự nhiên như người thật tâm sự.",
-        "prompt_style": "chất giọng nữ trầm ấm, sâu lắng, truyền cảm, rõ ràng và ngắt nghỉ tự nhiên"
-    },
-    "Aoede": {
-        "gender": "Nữ",
-        "title": "Aoede (Nữ Nhẹ Nhàng)",
-        "tag": "Chữa lành & Thơ ca",
-        "desc": "Trong trẻo, êm dịu, thư thái, mang lại cảm giác bình yên.",
-        "prompt_style": "chất giọng nữ nhẹ nhàng, trong trẻo, êm dịu, thư thái và ngắt nghỉ tự nhiên"
+    "Orus": {
+        "engine": "gemini",
+        "voice_id": "Orus",
+        "gender": "Nam",
+        "title": "Orus (Nam Điềm Đạm - Gemini AI)",
+        "tag": "Chiêm nghiệm & Sâu sắc",
+        "desc": "Điềm đạm, sâu sắc, ngữ điệu tự nhiên, truyền cảm.",
+        "prompt_style": "chất giọng nam điềm đạm, sâu lắng, ngữ điệu tự nhiên"
     },
     "Fenrir": {
+        "engine": "gemini",
+        "voice_id": "Fenrir",
         "gender": "Nam",
-        "title": "Fenrir (Nam Hào Sảng)",
+        "title": "Fenrir (Nam Hào Sảng - Gemini AI)",
         "tag": "Động lực & Ý chí",
         "desc": "Mạnh mẽ, dứt khoát, hào sảng, tràn đầy năng lượng bứt phá.",
         "prompt_style": "chất giọng nam mạnh mẽ, hào sảng, dứt khoát, truyền động lực và uy lực"
     },
+    "HoaiMy": {
+        "engine": "edge_tts",
+        "voice_id": "vi-VN-HoaiMyNeural",
+        "gender": "Nữ",
+        "title": "Hoài My (Nữ Sâu Lắng - Chuẩn Quote)",
+        "tag": "⭐ Khuyên dùng cho Giọng Nữ",
+        "desc": "Sâu lắng, truyền cảm, ngắt nghỉ tự nhiên, thích hợp chữa lành.",
+        "prompt_style": "chất giọng nữ sâu lắng, truyền cảm và ngắt nghỉ tự nhiên"
+    },
+    "Kore": {
+        "engine": "gemini",
+        "voice_id": "Kore",
+        "gender": "Nữ",
+        "title": "Kore (Nữ Trầm Ấm - Gemini AI)",
+        "tag": "Tâm sự",
+        "desc": "Trầm ấm, sâu lắng, ngắt nghỉ tự nhiên như người thật tâm sự.",
+        "prompt_style": "chất giọng nữ trầm ấm, sâu lắng, truyền cảm, rõ ràng và ngắt nghỉ tự nhiên"
+    },
     "Puck": {
+        "engine": "gemini",
+        "voice_id": "Puck",
         "gender": "Nam",
-        "title": "Puck (Nam Tươi Trẻ)",
+        "title": "Puck (Nam Tươi Trẻ - Gemini AI)",
         "tag": "Hoạt bát & Đời thường",
         "desc": "Năng động, tươi sáng, vui vẻ, thích hợp video phong cách trẻ.",
         "prompt_style": "chất giọng nam trẻ trung, tươi sáng, hoạt bát và gần gũi"
@@ -149,30 +177,66 @@ def save_clean_pcm_wav(audio_bytes: bytes, target_path: Path | str) -> float:
     return get_audio_duration(p)
 
 
+def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path) -> float:
+    """Sinh giọng đọc bằng Edge-TTS và chuyển đổi sang chuẩn 24kHz Mono WAV sạch."""
+    import asyncio
+    import subprocess
+    import edge_tts
+    from modules.video_composer import FFMPEG_EXE
+
+    mp3_tmp = out_wav.parent / f"tmp_{out_wav.stem}.mp3"
+    
+    async def _run():
+        comm = edge_tts.Communicate(text, voice_id, rate="-2%")
+        await comm.save(str(mp3_tmp))
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(asyncio.run, _run()).result()
+    else:
+        asyncio.run(_run())
+
+    # Chuyển đổi MP3 sang WAV 24000Hz mono
+    cmd = [FFMPEG_EXE, "-y", "-i", str(mp3_tmp), "-ar", "24000", "-ac", "1", str(out_wav)]
+    subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if mp3_tmp.exists():
+        try:
+            mp3_tmp.unlink()
+        except Exception:
+            pass
+
+    return get_audio_duration(out_wav)
+
+
 def synthesize_voice(
     text: str,
-    voice_name: str = "Charon",
+    voice_name: str = "NamMinh",
     output_path: Optional[Path | str] = None,
     api_key: Optional[str] = None,
     model_name: str = "gemini-3.8-flash-tts",
     use_cache: bool = True
 ) -> Tuple[Path, float]:
     """
-    Sinh file giọng đọc từ Gemini TTS.
+    Sinh file giọng đọc (Nam Minh / Hoài My qua Edge-TTS hoặc Gemini 3.8 Flash TTS).
     Trả về: (Path_tới_file_wav, thời_lượng_giây)
     """
     clean_text = " ".join(text.strip().split())
     if not clean_text:
         raise ValueError("Văn bản câu quote không được để trống!")
 
-    key = get_gemini_api_key(api_key)
-    if not key:
-        raise ValueError("Chưa tìm thấy Gemini API Key! Vui lòng cấu hình trong file .env hoặc nhập trực tiếp.")
+    voice_meta = AVAILABLE_VOICES.get(voice_name, AVAILABLE_VOICES["NamMinh"])
+    engine = voice_meta.get("engine", "gemini")
 
     # Tạo cache key (kèm version để xóa bỏ các cache cũ có chứa câu lệnh)
     cache_dir = Path("temp/voice_cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_ver = "v3_pure_tts"
+    cache_ver = "v4_clean_tts"
     hash_str = hashlib.sha256(f"{cache_ver}:{voice_name}:{clean_text}".encode("utf-8")).hexdigest()[:16]
     cached_file = cache_dir / f"voice_{voice_name}_{hash_str}.wav"
 
@@ -187,44 +251,70 @@ def synthesize_voice(
             return out_p, dur
         return cached_file, dur
 
-    # Gọi Google GenAI SDK
-    from google import genai
-    from google.genai import types
+    # 1. Nếu là động cơ Edge-TTS (Nam Minh, Hoài My)
+    if engine == "edge_tts":
+        voice_id = voice_meta.get("voice_id", "vi-VN-NamMinhNeural")
+        dur = _synthesize_edge_tts(clean_text, voice_id, cached_file)
+        if output_path:
+            out_p = Path(output_path)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            if out_p.resolve() != cached_file.resolve():
+                import shutil
+                shutil.copyfile(cached_file, out_p)
+            return out_p, dur
+        return cached_file, dur
 
-    client = genai.Client(api_key=key)
+    # 2. Nếu là động cơ Gemini TTS
+    key = get_gemini_api_key(api_key)
+    if not key:
+        # Nếu chưa cấu hình Gemini API key, tự động chuyển sang Edge-TTS Nam Minh
+        logger.warning("Chưa có Gemini API Key, tự động chuyển sang giọng Nam Minh (Edge-TTS)!")
+        return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
 
-    # Cấu hình giọng đọc
-    config = types.GenerateContentConfig(
-        response_modalities=["AUDIO"],
-        speech_config=types.SpeechConfig(
-            voice_config=types.VoiceConfig(
-                prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                    voice_name=voice_name
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=key)
+
+        config = types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=voice_name
+                    )
                 )
-            )
-        ),
-    )
+            ),
+        )
 
-    # Chỉ gửi trực tiếp nội dung văn bản cần đọc để Gemini TTS không phát âm thừa câu lệnh
-    response = client.models.generate_content(
-        model=model_name,
-        contents=clean_text,
-        config=config,
-    )
+        response = client.models.generate_content(
+            model=model_name,
+            contents=clean_text,
+            config=config,
+        )
 
-    audio_bytes = None
-    for candidate in response.candidates:
-        if candidate.content and candidate.content.parts:
-            for part in candidate.content.parts:
-                if getattr(part, "inline_data", None) and part.inline_data.data:
-                    audio_bytes = part.inline_data.data
-                    break
+        audio_bytes = None
+        for candidate in response.candidates:
+            if candidate.content and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if getattr(part, "inline_data", None) and part.inline_data.data:
+                        audio_bytes = part.inline_data.data
+                        break
 
-    if not audio_bytes:
-        raise RuntimeError("Gemini API không trả về dữ liệu âm thanh. Vui lòng kiểm tra lại prompt hoặc thử lại sau.")
+        if not audio_bytes:
+            raise RuntimeError("Gemini API không trả về dữ liệu âm thanh.")
 
-    # Lưu vào cached_file (trích xuất PCM sạch và áp dụng soft fade-out để triệt tiêu tiếng xẹt xẹt)
-    dur = save_clean_pcm_wav(audio_bytes, cached_file)
+        dur = save_clean_pcm_wav(audio_bytes, cached_file)
+
+    except Exception as ex:
+        err_msg = str(ex).lower()
+        if "quota" in err_msg or "429" in err_msg or "resource_exhausted" in err_msg:
+            logger.warning("Gemini API hết quota miễn phí trong ngày, tự động dùng giọng Nam Minh chuẩn Quote TikTok!")
+            return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
+        else:
+            logger.warning(f"Lỗi Gemini TTS ({ex}), chuyển dự phòng sang Nam Minh!")
+            return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
 
     # Nếu có output_path cụ thể, sao chép sang
     if output_path:

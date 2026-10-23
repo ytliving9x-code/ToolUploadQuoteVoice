@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 from PIL import Image
 
 from modules.typography_engine import create_quote_overlay
+from modules.kinetic_engine import generate_kinetic_ass
 
 logger = logging.getLogger("quote_voice.video_composer")
 
@@ -90,43 +91,42 @@ def compose_quote_video(
         target_dur = (voice_dur + padding) if voice_dur > 0 else 10.0
         video_duration = max(5.0, min(target_dur, 60.0))
 
-    # 3. Tạo ảnh lớp chữ (Typography overlay PNG)
-    overlay_img = create_quote_overlay(
-        quote=quote,
+    # 3. Tạo file phụ đề động Kinetic Phrase Pop khớp chuẩn theo nhịp giọng đọc
+    tmp_ass_path = out_file.parent / f"kinetic_{out_file.stem}.ass"
+    generate_kinetic_ass(
+        quote_text=quote,
         signature=signature,
-        enable_gradient_scrim=enable_antiglare,
-        scrim_max_alpha=scrim_max_alpha,
-        font_path=font_path
+        voice_duration=voice_dur,
+        video_duration=video_duration,
+        output_ass_path=tmp_ass_path,
+        font_name="Be Vietnam Pro"
     )
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_png:
-        tmp_png_path = Path(tmp_png.name)
-    overlay_img.save(tmp_png_path, format="PNG")
+
+    escaped_ass = str(tmp_ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
+    fonts_dir = str(Path("assets/fonts").resolve()).replace("\\", "/").replace(":", "\\:")
 
     # 4. Xác định loại nền (Ảnh hay Video)
     video_exts = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
     is_video_bg = media_file.suffix.lower() in video_exts
 
     try:
-        # Xây dựng FFmpeg Filter Complex
-        # Nhập media: [0] = nền, [1] = overlay PNG
-        # Lớp hình ảnh
+        # Xây dựng FFmpeg Filter Complex với chữ xuất hiện theo nhịp voice
         filter_parts = []
         if is_video_bg:
             filter_parts.append(
                 f"[0:v]trim=0:{video_duration},setpts=PTS-STARTPTS,"
                 f"scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
                 f"crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,fps=30,"
-                f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.18:t=fill[bg]"
+                f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.22:t=fill,"
+                f"subtitles='{escaped_ass}':fontsdir='{fonts_dir}'[outv]"
             )
         else:
             filter_parts.append(
                 f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,"
                 f"crop=1080:1920:(in_w-1080)/2:(in_h-1920)/2,fps=30,"
-                f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.15:t=fill[bg]"
+                f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.20:t=fill,"
+                f"subtitles='{escaped_ass}':fontsdir='{fonts_dir}'[outv]"
             )
-
-        filter_parts.append("[1:v]format=rgba[text]")
-        filter_parts.append("[bg][text]overlay=0:0:shortest=1[outv]")
 
         # Cấu hình âm thanh
         input_args = []
@@ -135,12 +135,10 @@ def compose_quote_video(
         else:
             input_args.extend(["-loop", "1", "-t", str(video_duration), "-i", str(media_file)])
 
-        input_args.extend(["-loop", "1", "-i", str(tmp_png_path)])
-
         has_voice = bool(voice_wav_path and Path(voice_wav_path).exists())
         has_bgm = bool(bgm_path and Path(bgm_path).exists())
 
-        audio_input_idx = 2
+        audio_input_idx = 1
         voice_idx = None
         bgm_idx = None
 
@@ -153,6 +151,7 @@ def compose_quote_video(
             input_args.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
             bgm_idx = audio_input_idx
             audio_input_idx += 1
+
 
         # Xử lý luồng âm thanh
         has_audio = False
@@ -218,9 +217,9 @@ def compose_quote_video(
             raise RuntimeError(f"Lỗi FFmpeg khi ghép video: {proc.stderr[:400]}")
 
     finally:
-        if tmp_png_path.exists():
+        if tmp_ass_path.exists():
             try:
-                tmp_png_path.unlink()
+                tmp_ass_path.unlink()
             except Exception:
                 pass
 
