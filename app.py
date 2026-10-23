@@ -499,6 +499,16 @@ with col_preview:
     quote_ready = bool(st.session_state.quote_text.strip())
 
     # Khung điện thoại
+    if rendered_vid and Path(rendered_vid).exists():
+        st.markdown(
+            """
+            <div style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: #34D399; padding: 6px 14px; border-radius: 10px; font-size: 0.82rem; font-weight: 700; margin-bottom: 10px; text-align: center;">
+                ▶️ Video đã tạo xong! Bấm nút Play bên dưới để xem & nghe thử trước khi tải về máy
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
     st.markdown(
         """
         <div class="phone-mockup-wrapper">
