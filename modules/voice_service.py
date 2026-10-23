@@ -141,13 +141,7 @@ def synthesize_voice(
 
     client = genai.Client(api_key=key)
 
-    voice_meta = AVAILABLE_VOICES.get(voice_name, AVAILABLE_VOICES["Charon"])
-    style_desc = voice_meta["prompt_style"]
-
-    prompt = (
-        f"Hãy đọc đoạn văn sau bằng tiếng Việt với {style_desc}: \"{clean_text}\""
-    )
-
+    # Cấu hình giọng đọc
     config = types.GenerateContentConfig(
         response_modalities=["AUDIO"],
         speech_config=types.SpeechConfig(
@@ -159,9 +153,10 @@ def synthesize_voice(
         ),
     )
 
+    # Chỉ gửi trực tiếp nội dung văn bản cần đọc để Gemini TTS không phát âm thừa câu lệnh
     response = client.models.generate_content(
         model=model_name,
-        contents=prompt,
+        contents=clean_text,
         config=config,
     )
 

@@ -88,7 +88,7 @@ def generate_voice(
     try:
         response = client.models.generate_content(
             model=model_name,
-            contents=prompt,
+            contents=text,
             config=config,
         )
     except Exception as e:
