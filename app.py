@@ -384,11 +384,13 @@ with col_controls:
             temp_dir = Path("temp")
             temp_dir.mkdir(parents=True, exist_ok=True)
             saved_bg_path = temp_dir / f"uploaded_bg_{uploaded_media.name}"
-            with open(saved_bg_path, "wb") as f:
-                f.write(uploaded_media.getbuffer())
-            st.session_state.bg_media = str(saved_bg_path)
-            st.session_state.rendered_video = None
-            st.success(f"Đã tải lên: {uploaded_media.name}")
+            # Chỉ ghi đè và reset video khi tải lên file mới
+            if st.session_state.bg_media != str(saved_bg_path):
+                with open(saved_bg_path, "wb") as f:
+                    f.write(uploaded_media.getbuffer())
+                st.session_state.bg_media = str(saved_bg_path)
+                st.session_state.rendered_video = None
+                st.success(f"Đã tải lên: {uploaded_media.name}")
 
     st.write("")
 
@@ -533,7 +535,9 @@ with col_preview:
 
     # 1. Hiển thị Video thành phẩm (nếu đã render) HOẶC Realtime Live Composite Preview
     if rendered_vid and Path(rendered_vid).exists():
-        st.video(str(rendered_vid), autoplay=True)
+        with open(rendered_vid, "rb") as vf:
+            video_bytes = vf.read()
+        st.video(video_bytes, format="video/mp4", autoplay=True)
     elif bg_target and Path(bg_target).exists():
         is_video = Path(bg_target).suffix.lower() in [".mp4", ".mov", ".webm"]
         if is_video:
