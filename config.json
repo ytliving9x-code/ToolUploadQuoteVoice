@@ -1,0 +1,10 @@
+{
+  "default_voice": "Charon",
+  "default_signature": "@quote_channel",
+  "default_duration_mode": "dynamic",
+  "fixed_duration_seconds": 18.0,
+  "default_font": "assets/fonts/BeVietnamPro-Bold.ttf",
+  "enable_antiglare": true,
+  "scrim_alpha": 160,
+  "bgm_volume": 0.14
+}

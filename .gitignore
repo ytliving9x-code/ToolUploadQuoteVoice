@@ -1,0 +1,23 @@
+# Biến môi trường & Secrets
+.env
+.env.local
+.streamlit/secrets.toml
+
+# Dữ liệu xuất bản & tạm
+output/
+temp/
+samples/
+*.wav
+*.mp4
+
+# Python Cache & Môi trường ảo
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+
+# IDE
+.idea/
+.vscode/
