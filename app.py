@@ -432,8 +432,9 @@ with col_controls:
         )
 
         st.markdown('<div class="btn-hero">', unsafe_allow_html=True)
-        btn_render = st.button("🚀 XUẤT VIDEO TIKTOK CÓ GIỌNG ĐỌC", type="primary", use_container_width=True)
+        btn_render = st.button("🎬 TẠO BẢN XEM THỬ VIDEO (CÓ TIẾNG & CHỮ)", type="primary", use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
+        st.caption("💡 Bấm nút trên để ghép giọng đọc và nhạc nền. Video hoàn chỉnh sẽ phát ngay trong khung điện thoại bên phải để bạn duyệt trước khi tải!")
 
         if btn_render:
             bg_target = st.session_state.bg_media
@@ -502,8 +503,18 @@ with col_preview:
     if rendered_vid and Path(rendered_vid).exists():
         st.markdown(
             """
-            <div style="background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: #34D399; padding: 6px 14px; border-radius: 10px; font-size: 0.82rem; font-weight: 700; margin-bottom: 10px; text-align: center;">
-                ▶️ Video đã tạo xong! Bấm nút Play bên dưới để xem & nghe thử trước khi tải về máy
+            <div style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.45); color: #34D399; padding: 10px 14px; border-radius: 12px; font-size: 0.88rem; font-weight: 700; margin-bottom: 12px; text-align: center;">
+                🎬 BẢN XEM THỬ ĐÃ SẴN SÀNG!<br>
+                <span style="font-size: 0.8rem; font-weight: 500; color: #A7F3D0;">Bấm nút Play ▶️ trên video để xem & nghe toàn bộ video. Nếu ưng ý thì bấm nút Tải xuống ở dưới.</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            """
+            <div style="background: rgba(14, 165, 233, 0.12); border: 1px dashed rgba(56, 189, 248, 0.4); color: #7DD3FC; padding: 8px 14px; border-radius: 10px; font-size: 0.82rem; text-align: center; margin-bottom: 12px;">
+                👁️ <b>Xem trước bố cục tĩnh:</b> Bấm nút xanh <b>"TẠO BẢN XEM THỬ VIDEO"</b> ở Bước 4 để xem video có chuyển động, giọng đọc và nhạc nền!
             </div>
             """,
             unsafe_allow_html=True
@@ -522,7 +533,7 @@ with col_preview:
 
     # 1. Hiển thị Video thành phẩm (nếu đã render) HOẶC Realtime Live Composite Preview
     if rendered_vid and Path(rendered_vid).exists():
-        st.video(str(rendered_vid))
+        st.video(str(rendered_vid), autoplay=True)
     elif bg_target and Path(bg_target).exists():
         is_video = Path(bg_target).suffix.lower() in [".mp4", ".mov", ".webm"]
         if is_video:

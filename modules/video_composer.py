@@ -32,7 +32,14 @@ def probe_media_duration(file_path: Path | str) -> float:
             "-of", "default=noprint_wrappers=1:nokey=1",
             str(file_path),
         ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace"
+        )
         return float(result.stdout.strip())
     except Exception:
         return 0.0
@@ -198,7 +205,14 @@ def compose_quote_video(
         ])
 
         logger.info(f"Đang render video TikTok ({video_duration:.1f}s) -> {out_file.name}...")
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace"
+        )
         if proc.returncode != 0:
             logger.error(f"FFmpeg error: {proc.stderr}")
             raise RuntimeError(f"Lỗi FFmpeg khi ghép video: {proc.stderr[:400]}")
