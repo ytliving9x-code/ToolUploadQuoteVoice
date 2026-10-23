@@ -1,6 +1,8 @@
 import hashlib
+import io
 import logging
 import os
+import struct
 import sys
 import wave
 from pathlib import Path
@@ -95,7 +97,56 @@ def get_audio_duration(file_path: Path | str) -> float:
             return round(frames / float(rate), 2)
     except Exception as e:
         logger.warning(f"Không thể đo thời lượng WAV {p}: {e}")
-        return 0.0
+def save_clean_pcm_wav(audio_bytes: bytes, target_path: Path | str) -> float:
+    """
+    Xử lý dữ liệu âm thanh trả về từ Gemini TTS:
+    - Nếu API trả về container WAV (bắt đầu bằng RIFF), trích xuất CHÍNH XÁC các sample PCM
+      của data chunk, loại bỏ toàn bộ phần metadata/IPTC ở đuôi (nguyên nhân gây tiếng xẹt xẹt / rè ở cuối audio).
+    - Áp dụng soft fade-out nhẹ (35ms) ở cuối để âm thanh dứt êm ái, hoàn toàn không có tiếng bụp/xẹt.
+    - Ghi lại chuẩn WAV sạch 16-bit Mono 24kHz.
+    """
+    p = Path(target_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+
+    channels, sampwidth, framerate = 1, 2, 24000
+    raw_pcm = b""
+
+    if audio_bytes.startswith(b"RIFF"):
+        try:
+            with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
+                channels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+                framerate = wf.getframerate()
+                raw_pcm = wf.readframes(wf.getnframes())
+        except Exception:
+            idx = audio_bytes.find(b"data")
+            if idx != -1:
+                data_size = int.from_bytes(audio_bytes[idx + 4:idx + 8], byteorder="little")
+                raw_pcm = audio_bytes[idx + 8:idx + 8 + data_size]
+            else:
+                raw_pcm = audio_bytes
+    else:
+        raw_pcm = audio_bytes
+
+    # Áp dụng soft fade-out 35ms ở cuối để dứt âm êm ái
+    if sampwidth == 2 and len(raw_pcm) >= 2:
+        fade_samples = int(framerate * 0.035)
+        num_samples = len(raw_pcm) // 2
+        if num_samples > fade_samples:
+            samples = list(struct.unpack(f"<{num_samples}h", raw_pcm))
+            start_fade = num_samples - fade_samples
+            for i in range(fade_samples):
+                factor = 1.0 - (i / float(fade_samples))
+                samples[start_fade + i] = int(samples[start_fade + i] * factor)
+            raw_pcm = struct.pack(f"<{num_samples}h", *samples)
+
+    with wave.open(str(p), "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sampwidth)
+        wf.setframerate(framerate)
+        wf.writeframes(raw_pcm)
+
+    return get_audio_duration(p)
 
 
 def synthesize_voice(
@@ -172,14 +223,8 @@ def synthesize_voice(
     if not audio_bytes:
         raise RuntimeError("Gemini API không trả về dữ liệu âm thanh. Vui lòng kiểm tra lại prompt hoặc thử lại sau.")
 
-    # Lưu vào cached_file
-    with wave.open(str(cached_file), "wb") as wf:
-        wf.setnchannels(1)      # Mono
-        wf.setsampwidth(2)      # 16-bit
-        wf.setframerate(24000)  # Tần số chuẩn 24kHz
-        wf.writeframes(audio_bytes)
-
-    dur = get_audio_duration(cached_file)
+    # Lưu vào cached_file (trích xuất PCM sạch và áp dụng soft fade-out để triệt tiêu tiếng xẹt xẹt)
+    dur = save_clean_pcm_wav(audio_bytes, cached_file)
 
     # Nếu có output_path cụ thể, sao chép sang
     if output_path:

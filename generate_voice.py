@@ -105,12 +105,9 @@ def generate_voice(
         print("❌ Không nhận được dữ liệu âm thanh từ Gemini. Vui lòng thử lại.")
         return False
 
-    # Lưu thành file WAV chuẩn 24kHz Mono 16-bit
-    with wave.open(output_path, "wb") as wf:
-        wf.setnchannels(1)      # Mono
-        wf.setsampwidth(2)      # 16-bit
-        wf.setframerate(24000)  # Tần số 24000Hz chuẩn của Gemini Audio
-        wf.writeframes(audio_bytes)
+    # Lưu thành file WAV sạch (loại bỏ metadata IPTC gây tiếng xẹt xẹt và fade-out êm ái)
+    from modules.voice_service import save_clean_pcm_wav
+    save_clean_pcm_wav(audio_bytes, output_path)
 
     abs_path = Path(output_path).resolve()
     print(f"✅ Đã tạo thành công file âm thanh!")
