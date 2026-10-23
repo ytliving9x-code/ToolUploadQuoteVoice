@@ -1,14 +1,34 @@
+import concurrent.futures
 import hashlib
 import io
 import logging
 import os
+import re
 import struct
 import sys
+import time
 import wave
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger("quote_voice.voice_service")
+
+
+def sanitize_tts_text(text: str) -> str:
+    """Làm sạch văn bản trước khi đưa vào TTS để tránh lỗi ngắt kết nối hoặc lỗi SSML."""
+    if not text:
+        return ""
+    cleaned = text.strip()
+    # Loại bỏ ngoặc kép, ngoặc vuông, ngoặc nhọn hoặc ký tự quote trang trí
+    cleaned = re.sub(r'[""“„«»]', '', cleaned)
+    cleaned = re.sub(r"[''`]", '', cleaned)
+    # Loại bỏ icon emoji có thể khiến Microsoft TTS ngắt websocket
+    cleaned = re.sub(r'[\U00010000-\U0010ffff]', '', cleaned)
+    # Xóa ký tự gạch đầu dòng trang trí ở đầu câu
+    cleaned = re.sub(r'^[\s\-\–\—\*\#\>]+', '', cleaned)
+    # Chuẩn hóa khoảng trắng
+    cleaned = " ".join(cleaned.split())
+    return cleaned
 
 # Danh mục các giọng đọc tiếng Việt chuyên nghiệp cho Video Quote
 AVAILABLE_VOICES: Dict[str, Dict[str, str]] = {
@@ -177,32 +197,62 @@ def save_clean_pcm_wav(audio_bytes: bytes, target_path: Path | str) -> float:
     return get_audio_duration(p)
 
 
-def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path) -> float:
-    """Sinh giọng đọc bằng Edge-TTS và chuyển đổi sang chuẩn 24kHz Mono WAV sạch."""
+def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path, max_retries: int = 3) -> float:
+    """
+    Sinh giọng đọc bằng Edge-TTS với cơ chế tự động thử lại (retry) và chuyển đổi sang chuẩn 24kHz Mono WAV sạch.
+    Sử dụng luồng riêng biệt để đảm bảo không xung đột Event Loop với Streamlit.
+    """
     import asyncio
     import subprocess
     import edge_tts
     from modules.video_composer import FFMPEG_EXE
 
+    clean = sanitize_tts_text(text)
+    if not clean:
+        clean = text.strip()
+
     mp3_tmp = out_wav.parent / f"tmp_{out_wav.stem}.mp3"
     
-    async def _run():
-        comm = edge_tts.Communicate(text, voice_id, rate="-2%")
-        await comm.save(str(mp3_tmp))
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        # Dọn dẹp file tạm trước mỗi lần thử
+        if mp3_tmp.exists():
+            try:
+                mp3_tmp.unlink()
+            except Exception:
+                pass
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
+        def _do_tts():
+            async def _async_task():
+                # rate=+0% chuẩn mực không làm gãy parser của Microsoft Edge
+                comm = edge_tts.Communicate(clean, voice_id, rate="+0%")
+                await comm.save(str(mp3_tmp))
+            asyncio.run(_async_task())
 
-    if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            pool.submit(asyncio.run, _run()).result()
-    else:
-        asyncio.run(_run())
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(_do_tts).result(timeout=25)
 
-    # Chuyển đổi MP3 sang WAV 24000Hz mono
+            if mp3_tmp.exists() and mp3_tmp.stat().st_size > 500:
+                last_err = None
+                break
+            else:
+                sz = mp3_tmp.stat().st_size if mp3_tmp.exists() else 0
+                raise RuntimeError(f"Dữ liệu audio trả về không hợp lệ ({sz} bytes)")
+        except Exception as e:
+            logger.warning(f"Lần thử {attempt}/{max_retries} Edge-TTS ({voice_id}) gặp sự cố: {e}")
+            last_err = e
+            time.sleep(0.5 * attempt)
+
+    if last_err is not None:
+        if mp3_tmp.exists():
+            try:
+                mp3_tmp.unlink()
+            except Exception:
+                pass
+        raise last_err
+
+    # Chuyển đổi MP3 sang WAV 24000Hz mono và lọc sạch
     cmd = [FFMPEG_EXE, "-y", "-i", str(mp3_tmp), "-ar", "24000", "-ac", "1", str(out_wav)]
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if mp3_tmp.exists():
@@ -224,6 +274,7 @@ def synthesize_voice(
 ) -> Tuple[Path, float]:
     """
     Sinh file giọng đọc (Nam Minh / Hoài My qua Edge-TTS hoặc Gemini 3.8 Flash TTS).
+    Có cơ chế tự động chuyển đổi dự phòng (Failover) nếu một trong hai dịch vụ gặp lỗi.
     Trả về: (Path_tới_file_wav, thời_lượng_giây)
     """
     clean_text = " ".join(text.strip().split())
@@ -236,7 +287,7 @@ def synthesize_voice(
     # Tạo cache key (kèm version để xóa bỏ các cache cũ có chứa câu lệnh)
     cache_dir = Path("temp/voice_cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_ver = "v4_clean_tts"
+    cache_ver = "v5_clean_tts"
     hash_str = hashlib.sha256(f"{cache_ver}:{voice_name}:{clean_text}".encode("utf-8")).hexdigest()[:16]
     cached_file = cache_dir / f"voice_{voice_name}_{hash_str}.wav"
 
@@ -251,10 +302,20 @@ def synthesize_voice(
             return out_p, dur
         return cached_file, dur
 
-    # 1. Nếu là động cơ Edge-TTS (Nam Minh, Hoài My)
+    # 1. Động cơ Edge-TTS (Nam Minh, Hoài My)
     if engine == "edge_tts":
         voice_id = voice_meta.get("voice_id", "vi-VN-NamMinhNeural")
-        dur = _synthesize_edge_tts(clean_text, voice_id, cached_file)
+        try:
+            dur = _synthesize_edge_tts(clean_text, voice_id, cached_file)
+        except Exception as edge_err:
+            logger.warning(f"Edge-TTS ({voice_name}) thất bại: {edge_err}. Kiểm tra fallback sang Gemini...")
+            key = get_gemini_api_key(api_key)
+            if key:
+                logger.info("Chuyển dự phòng sang Gemini TTS (Charon)...")
+                return synthesize_voice(clean_text, voice_name="Charon", output_path=output_path, api_key=key, use_cache=use_cache)
+            else:
+                raise RuntimeError(f"Không thể kết nối đến máy chủ giọng đọc ({edge_err}). Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau vài giây.")
+
         if output_path:
             out_p = Path(output_path)
             out_p.parent.mkdir(parents=True, exist_ok=True)
@@ -264,10 +325,9 @@ def synthesize_voice(
             return out_p, dur
         return cached_file, dur
 
-    # 2. Nếu là động cơ Gemini TTS
+    # 2. Động cơ Gemini TTS (Charon, Fenrir, Orus,...)
     key = get_gemini_api_key(api_key)
     if not key:
-        # Nếu chưa cấu hình Gemini API key, tự động chuyển sang Edge-TTS Nam Minh
         logger.warning("Chưa có Gemini API Key, tự động chuyển sang giọng Nam Minh (Edge-TTS)!")
         return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
 
@@ -308,13 +368,8 @@ def synthesize_voice(
         dur = save_clean_pcm_wav(audio_bytes, cached_file)
 
     except Exception as ex:
-        err_msg = str(ex).lower()
-        if "quota" in err_msg or "429" in err_msg or "resource_exhausted" in err_msg:
-            logger.warning("Gemini API hết quota miễn phí trong ngày, tự động dùng giọng Nam Minh chuẩn Quote TikTok!")
-            return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
-        else:
-            logger.warning(f"Lỗi Gemini TTS ({ex}), chuyển dự phòng sang Nam Minh!")
-            return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
+        logger.warning(f"Lỗi Gemini TTS ({ex}), tự động chuyển dự phòng sang giọng Nam Minh (Edge-TTS)!")
+        return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
 
     # Nếu có output_path cụ thể, sao chép sang
     if output_path:
@@ -326,3 +381,4 @@ def synthesize_voice(
         return out_p, dur
 
     return cached_file, dur
+
