@@ -35,8 +35,31 @@ Accent: Vietnamese (Southern or Northern authentic tone).
 Voice characteristics: Deep, rough, authoritative yet deeply affectionate, cinematic pacing.
 Instruction: Obey emotion and pacing markers in parentheses. Do not read the bracketed instructions aloud; only express them through tone, breath, and cadence. Read ONLY the quote text itself in Vietnamese. Do not say any greeting, conversational filler, or intro."""
 
-# Danh mục các giọng đọc tiếng Việt chuyên nghiệp cho Video Quote
 AVAILABLE_VOICES: Dict[str, Dict[str, str]] = {
+    "Adam": {
+        "engine": "vieneu",
+        "voice_id": "Adam",
+        "gender": "Nam",
+        "title": "Adam (VieNeu AI - Nam Trầm, Tự Nhiên)",
+        "tag": "⭐ Giọng Adam Chạy Offline Trên PC (<1s)",
+        "desc": "Chất giọng nam tự nhiên, phong thái truyền cảm, chạy 100% offline trên máy bạn siêu tốc (<1s).",
+    },
+    "DucTri": {
+        "engine": "vieneu",
+        "voice_id": "Đức Trí",
+        "gender": "Nam",
+        "title": "Đức Trí (VieNeu AI - Đọc Truyện & Triết Lý)",
+        "tag": "Phong cách kể chuyện sâu sắc",
+        "desc": "Nam miền Bắc, truyền cảm, phong cách kể chuyện và đọc sách sâu lắng.",
+    },
+    "AnhKhoi": {
+        "engine": "vieneu",
+        "voice_id": "Anh Khôi",
+        "gender": "Nam",
+        "title": "Anh Khôi (VieNeu AI - Kể Chuyện)",
+        "tag": "Phong cách tự sự & Chiêm nghiệm",
+        "desc": "Chất giọng tự sự, đằm thắm, thích hợp video quote và podcast.",
+    },
     "NguoiCha": {
         "engine": "gemini",
         "voice_id": "Charon",
@@ -293,30 +316,67 @@ def _synthesize_edge_tts(
     return get_audio_duration(out_wav)
 
 
+_VIENEU_TTS_INSTANCE = None
+
+
+def _get_vieneu_tts():
+    """Tải và khởi tạo VieNeu TTS v3 Nano (CPU offline) dạng singleton để tối ưu tốc độ."""
+    global _VIENEU_TTS_INSTANCE
+    if _VIENEU_TTS_INSTANCE is None:
+        from vieneu import Vieneu
+        _VIENEU_TTS_INSTANCE = Vieneu(mode="v3nano")
+    return _VIENEU_TTS_INSTANCE
+
+
+def _synthesize_vieneu(text: str, voice_id: str, out_wav: Path) -> float:
+    """Sinh giọng đọc bằng VieNeu-TTS chạy offline trên CPU."""
+    from modules.kinetic_engine import strip_emotion_markers
+    clean = strip_emotion_markers(text)
+    clean = sanitize_tts_text(clean)
+    if not clean:
+        clean = text.strip()
+
+    tts = _get_vieneu_tts()
+    wav_data = tts.infer(clean, voice=voice_id)
+    tmp_out = out_wav.parent / f"tmp_{out_wav.stem}.wav"
+    tts.save(wav_data, str(tmp_out))
+
+    with open(tmp_out, "rb") as f:
+        audio_bytes = f.read()
+
+    if tmp_out.exists():
+        try:
+            tmp_out.unlink()
+        except Exception:
+            pass
+
+    return save_clean_pcm_wav(audio_bytes, out_wav)
+
+
 def synthesize_voice(
     text: str,
-    voice_name: str = "NguoiCha",
+    voice_name: str = "Adam",
     output_path: Optional[Path | str] = None,
     api_key: Optional[str] = None,
     model_name: str = "gemini-3.8-flash-tts",
     use_cache: bool = True
 ) -> Tuple[Path, float]:
     """
-    Sinh file giọng đọc (Người Cha, Nam Minh, Charon, Orus,...).
-    Hỗ trợ System Instruction & Emotion markers cho Gemini và tự động fallback sang Edge-TTS khi cần.
+    Sinh file giọng đọc (Adam, Người Cha, Nam Minh, Charon, Orus,...).
+    Hỗ trợ VieNeu-TTS (chạy 100% offline trên máy), Edge-TTS và Gemini AI.
     Trả về: (Path_tới_file_wav, thời_lượng_giây)
     """
     clean_text = " ".join(text.strip().split())
     if not clean_text:
         raise ValueError("Văn bản câu quote không được để trống!")
 
-    voice_meta = AVAILABLE_VOICES.get(voice_name, AVAILABLE_VOICES["NguoiCha"])
-    engine = voice_meta.get("engine", "gemini")
+    voice_meta = AVAILABLE_VOICES.get(voice_name, AVAILABLE_VOICES["Adam"])
+    engine = voice_meta.get("engine", "vieneu")
 
     # Tạo cache key (kèm version để xóa bỏ các cache cũ có chứa câu lệnh)
     cache_dir = Path("temp/voice_cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_ver = "v6_clean_tts"
+    cache_ver = "v7_clean_tts"
     hash_str = hashlib.sha256(f"{cache_ver}:{voice_name}:{clean_text}".encode("utf-8")).hexdigest()[:16]
     cached_file = cache_dir / f"voice_{voice_name}_{hash_str}.wav"
 
@@ -331,7 +391,25 @@ def synthesize_voice(
             return out_p, dur
         return cached_file, dur
 
-    # 1. Động cơ Edge-TTS (Nam Minh, Hoài My)
+    # 1. Động cơ VieNeu-TTS (Adam, Đức Trí, Anh Khôi - Chạy offline trên máy <1s)
+    if engine == "vieneu":
+        voice_id = voice_meta.get("voice_id", "Adam")
+        try:
+            dur = _synthesize_vieneu(clean_text, voice_id, cached_file)
+        except Exception as ex:
+            logger.warning(f"Lỗi VieNeu TTS ({ex}), tự động chuyển dự phòng sang Nam Minh (Edge-TTS)!")
+            return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
+
+        if output_path:
+            out_p = Path(output_path)
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            if out_p.resolve() != cached_file.resolve():
+                import shutil
+                shutil.copyfile(cached_file, out_p)
+            return out_p, dur
+        return cached_file, dur
+
+    # 2. Động cơ Edge-TTS (Nam Minh, Hoài My)
     if engine == "edge_tts":
         voice_id = voice_meta.get("voice_id", "vi-VN-NamMinhNeural")
         audio_filter = voice_meta.get("edge_fallback_filter")
@@ -354,6 +432,7 @@ def synthesize_voice(
                 shutil.copyfile(cached_file, out_p)
             return out_p, dur
         return cached_file, dur
+
 
     # 2. Động cơ Gemini TTS (NguoiCha, Charon, Fenrir, Orus,...)
     key = get_gemini_api_key(api_key)

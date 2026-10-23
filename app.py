@@ -220,7 +220,7 @@ st.markdown(
 if "quote_text" not in st.session_state:
     st.session_state.quote_text = "(thở dài nhẹ) Con à, cuộc đời này không có con đường nào bằng phẳng cả. Hãy vững lòng."
 if "selected_voice" not in st.session_state:
-    st.session_state.selected_voice = "NguoiCha"
+    st.session_state.selected_voice = "Adam"
 if "bg_media" not in st.session_state:
     st.session_state.bg_media = "assets/backgrounds/default_night.jpg"
 if "signature" not in st.session_state:
