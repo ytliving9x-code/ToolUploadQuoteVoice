@@ -36,6 +36,10 @@ st.set_page_config(
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("QuoteStudioVoice")
 
+# Tự động tạo các thư mục lưu trữ nếu chưa có (cần thiết trên Streamlit Cloud)
+for dir_name in ["temp", "temp/voice_cache", "output", "assets/backgrounds", "assets/bgm"]:
+    Path(dir_name).mkdir(parents=True, exist_ok=True)
+
 # ==============================================================================
 # ULTRA-PREMIUM AESTHETIC CSS (GLASSMORPHISM & PHONE MOCKUP)
 # ==============================================================================
@@ -377,7 +381,9 @@ with col_controls:
 
         if uploaded_media:
             # Lưu tạm vào thư mục temp
-            saved_bg_path = Path("temp") / f"uploaded_bg_{uploaded_media.name}"
+            temp_dir = Path("temp")
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            saved_bg_path = temp_dir / f"uploaded_bg_{uploaded_media.name}"
             with open(saved_bg_path, "wb") as f:
                 f.write(uploaded_media.getbuffer())
             st.session_state.bg_media = str(saved_bg_path)

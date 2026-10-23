@@ -4,8 +4,10 @@
 .streamlit/secrets.toml
 
 # Dữ liệu xuất bản & tạm
-output/
-temp/
+output/*
+!output/.gitkeep
+temp/*
+!temp/.gitkeep
 samples/
 *.wav
 *.mp4
