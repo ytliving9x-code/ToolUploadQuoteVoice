@@ -30,8 +30,23 @@ def sanitize_tts_text(text: str) -> str:
     cleaned = " ".join(cleaned.split())
     return cleaned
 
+FATHER_PERSONA_INSTRUCTION = """Role: An experienced Vietnamese father in his 50s talking directly to his adult son.
+Accent: Vietnamese (Southern or Northern authentic tone).
+Voice characteristics: Deep, rough, authoritative yet deeply affectionate, cinematic pacing.
+Instruction: Obey emotion and pacing markers in parentheses. Do not read the bracketed instructions aloud; only express them through tone, breath, and cadence. Read ONLY the quote text itself in Vietnamese. Do not say any greeting, conversational filler, or intro."""
+
 # Danh mục các giọng đọc tiếng Việt chuyên nghiệp cho Video Quote
 AVAILABLE_VOICES: Dict[str, Dict[str, str]] = {
+    "NguoiCha": {
+        "engine": "gemini",
+        "voice_id": "Charon",
+        "gender": "Nam",
+        "title": "Người Cha (Nam 50s - Trầm, Uy Nghi & Yêu Thương)",
+        "tag": "⭐ Persona: Người cha khuyên răn con",
+        "desc": "Người cha 50 tuổi từng trải: trầm khàn, uy nghi, đong đầy yêu thương, nhịp cinematic.",
+        "system_instruction": FATHER_PERSONA_INSTRUCTION,
+        "edge_fallback_filter": "equalizer=f=120:width_type=o:w=1:g=2.8,atempo=0.95"
+    },
     "NamMinh": {
         "engine": "edge_tts",
         "voice_id": "vi-VN-NamMinhNeural",
@@ -48,7 +63,8 @@ AVAILABLE_VOICES: Dict[str, Dict[str, str]] = {
         "title": "Charon (Nam Trầm Dày - Gemini AI)",
         "tag": "Triết lý / Lãnh đạo",
         "desc": "Trầm ấm, uy lực, phong thái phát thanh viên đĩnh đạc.",
-        "prompt_style": "chất giọng nam trầm, phong thái đĩnh đạc, đằm thắm, truyền cảm hứng và uy quyền"
+        "prompt_style": "chất giọng nam trầm, phong thái đĩnh đạc, đằm thắm, truyền cảm hứng và uy quyền",
+        "system_instruction": FATHER_PERSONA_INSTRUCTION
     },
     "Orus": {
         "engine": "gemini",
@@ -96,6 +112,7 @@ AVAILABLE_VOICES: Dict[str, Dict[str, str]] = {
         "prompt_style": "chất giọng nam trẻ trung, tươi sáng, hoạt bát và gần gũi"
     }
 }
+
 
 
 def get_gemini_api_key(explicit_key: Optional[str] = None) -> Optional[str]:
@@ -197,7 +214,13 @@ def save_clean_pcm_wav(audio_bytes: bytes, target_path: Path | str) -> float:
     return get_audio_duration(p)
 
 
-def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path, max_retries: int = 3) -> float:
+def _synthesize_edge_tts(
+    text: str,
+    voice_id: str,
+    out_wav: Path,
+    max_retries: int = 3,
+    audio_filter: Optional[str] = None
+) -> float:
     """
     Sinh giọng đọc bằng Edge-TTS với cơ chế tự động thử lại (retry) và chuyển đổi sang chuẩn 24kHz Mono WAV sạch.
     Sử dụng luồng riêng biệt để đảm bảo không xung đột Event Loop với Streamlit.
@@ -206,8 +229,11 @@ def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path, max_retries: i
     import subprocess
     import edge_tts
     from modules.video_composer import FFMPEG_EXE
+    from modules.kinetic_engine import strip_emotion_markers
 
-    clean = sanitize_tts_text(text)
+    # Edge-TTS không hiểu chỉ thị cảm xúc trong ngoặc, cần lọc bỏ để tránh đọc thành tiếng
+    clean = strip_emotion_markers(text)
+    clean = sanitize_tts_text(clean)
     if not clean:
         clean = text.strip()
 
@@ -215,7 +241,6 @@ def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path, max_retries: i
     
     last_err = None
     for attempt in range(1, max_retries + 1):
-        # Dọn dẹp file tạm trước mỗi lần thử
         if mp3_tmp.exists():
             try:
                 mp3_tmp.unlink()
@@ -252,8 +277,12 @@ def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path, max_retries: i
                 pass
         raise last_err
 
-    # Chuyển đổi MP3 sang WAV 24000Hz mono và lọc sạch
-    cmd = [FFMPEG_EXE, "-y", "-i", str(mp3_tmp), "-ar", "24000", "-ac", "1", str(out_wav)]
+    # Chuyển đổi MP3 sang WAV 24000Hz mono và lọc sạch (áp dụng audio_filter nếu có)
+    cmd = [FFMPEG_EXE, "-y", "-i", str(mp3_tmp)]
+    if audio_filter:
+        cmd.extend(["-af", audio_filter])
+    cmd.extend(["-ar", "24000", "-ac", "1", str(out_wav)])
+
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if mp3_tmp.exists():
         try:
@@ -266,28 +295,28 @@ def _synthesize_edge_tts(text: str, voice_id: str, out_wav: Path, max_retries: i
 
 def synthesize_voice(
     text: str,
-    voice_name: str = "NamMinh",
+    voice_name: str = "NguoiCha",
     output_path: Optional[Path | str] = None,
     api_key: Optional[str] = None,
     model_name: str = "gemini-3.8-flash-tts",
     use_cache: bool = True
 ) -> Tuple[Path, float]:
     """
-    Sinh file giọng đọc (Nam Minh / Hoài My qua Edge-TTS hoặc Gemini 3.8 Flash TTS).
-    Có cơ chế tự động chuyển đổi dự phòng (Failover) nếu một trong hai dịch vụ gặp lỗi.
+    Sinh file giọng đọc (Người Cha, Nam Minh, Charon, Orus,...).
+    Hỗ trợ System Instruction & Emotion markers cho Gemini và tự động fallback sang Edge-TTS khi cần.
     Trả về: (Path_tới_file_wav, thời_lượng_giây)
     """
     clean_text = " ".join(text.strip().split())
     if not clean_text:
         raise ValueError("Văn bản câu quote không được để trống!")
 
-    voice_meta = AVAILABLE_VOICES.get(voice_name, AVAILABLE_VOICES["NamMinh"])
+    voice_meta = AVAILABLE_VOICES.get(voice_name, AVAILABLE_VOICES["NguoiCha"])
     engine = voice_meta.get("engine", "gemini")
 
     # Tạo cache key (kèm version để xóa bỏ các cache cũ có chứa câu lệnh)
     cache_dir = Path("temp/voice_cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_ver = "v5_clean_tts"
+    cache_ver = "v6_clean_tts"
     hash_str = hashlib.sha256(f"{cache_ver}:{voice_name}:{clean_text}".encode("utf-8")).hexdigest()[:16]
     cached_file = cache_dir / f"voice_{voice_name}_{hash_str}.wav"
 
@@ -305,8 +334,9 @@ def synthesize_voice(
     # 1. Động cơ Edge-TTS (Nam Minh, Hoài My)
     if engine == "edge_tts":
         voice_id = voice_meta.get("voice_id", "vi-VN-NamMinhNeural")
+        audio_filter = voice_meta.get("edge_fallback_filter")
         try:
-            dur = _synthesize_edge_tts(clean_text, voice_id, cached_file)
+            dur = _synthesize_edge_tts(clean_text, voice_id, cached_file, audio_filter=audio_filter)
         except Exception as edge_err:
             logger.warning(f"Edge-TTS ({voice_name}) thất bại: {edge_err}. Kiểm tra fallback sang Gemini...")
             key = get_gemini_api_key(api_key)
@@ -325,10 +355,10 @@ def synthesize_voice(
             return out_p, dur
         return cached_file, dur
 
-    # 2. Động cơ Gemini TTS (Charon, Fenrir, Orus,...)
+    # 2. Động cơ Gemini TTS (NguoiCha, Charon, Fenrir, Orus,...)
     key = get_gemini_api_key(api_key)
     if not key:
-        logger.warning("Chưa có Gemini API Key, tự động chuyển sang giọng Nam Minh (Edge-TTS)!")
+        logger.warning("Chưa có Gemini API Key, tự động chuyển sang giọng Nam Minh chuẩn Quote (Edge-TTS)!")
         return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
 
     try:
@@ -337,16 +367,23 @@ def synthesize_voice(
 
         client = genai.Client(api_key=key)
 
-        config = types.GenerateContentConfig(
-            response_modalities=["AUDIO"],
-            speech_config=types.SpeechConfig(
+        gemini_voice = voice_meta.get("voice_id", "Charon")
+        system_instruction = voice_meta.get("system_instruction")
+
+        config_kwargs = {
+            "response_modalities": ["AUDIO"],
+            "speech_config": types.SpeechConfig(
                 voice_config=types.VoiceConfig(
                     prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                        voice_name=voice_name
+                        voice_name=gemini_voice
                     )
                 )
             ),
-        )
+        }
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+
+        config = types.GenerateContentConfig(**config_kwargs)
 
         response = client.models.generate_content(
             model=model_name,
@@ -368,8 +405,13 @@ def synthesize_voice(
         dur = save_clean_pcm_wav(audio_bytes, cached_file)
 
     except Exception as ex:
-        logger.warning(f"Lỗi Gemini TTS ({ex}), tự động chuyển dự phòng sang giọng Nam Minh (Edge-TTS)!")
-        return synthesize_voice(clean_text, voice_name="NamMinh", output_path=output_path, use_cache=use_cache)
+        logger.warning(f"Lỗi Gemini TTS ({ex}), tự động chuyển dự phòng sang Nam Minh (Edge-TTS)!")
+        # Dùng bộ lọc father nếu chọn NguoiCha
+        fallback_filter = voice_meta.get("edge_fallback_filter")
+        try:
+            dur = _synthesize_edge_tts(clean_text, "vi-VN-NamMinhNeural", cached_file, audio_filter=fallback_filter)
+        except Exception as fb_err:
+            raise RuntimeError(f"Cả Gemini và Edge-TTS đều không khả dụng: {fb_err}")
 
     # Nếu có output_path cụ thể, sao chép sang
     if output_path:
@@ -381,4 +423,5 @@ def synthesize_voice(
         return out_p, dur
 
     return cached_file, dur
+
 

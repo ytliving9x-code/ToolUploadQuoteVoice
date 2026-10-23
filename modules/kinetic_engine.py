@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+import struct
+import wave
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 
 def format_ass_time(seconds: float) -> str:
@@ -19,37 +21,123 @@ def format_ass_time(seconds: float) -> str:
     return f"{hrs}:{mins:02d}:{secs:02d}.{cs:02d}"
 
 
-def split_quote_into_rhythmic_phrases(text: str) -> List[str]:
+def strip_emotion_markers(text: str) -> str:
+    """Loại bỏ các chỉ thị cảm xúc/đạo diễn trong ngoặc đơn (thở dài), [trầm giọng] khỏi chữ hiển thị trên màn hình."""
+    if not text:
+        return ""
+    # Xóa nội dung trong ngoặc đơn hoặc ngoặc vuông
+    cleaned = re.sub(r"\([^)]*\)", "", text)
+    cleaned = re.sub(r"\[[^\]]*\]", "", cleaned)
+    # Dọn dẹp khoảng trắng kép
+    cleaned = " ".join(cleaned.split())
+    return cleaned
+
+
+def get_audio_acoustic_bounds(wav_path: Path | str) -> Tuple[float, float, float]:
     """
-    Tách câu quote thành các cụm từ nhịp điệu (3 - 5 từ/cụm)
-    để hiển thị kinetic typography theo từng nhịp giọng đọc.
+    Phân tích sóng âm thanh WAV thật để tìm chính xác:
+    - speech_start: Thời điểm giọng đọc cất tiếng (bỏ qua khoảng lặng đầu file).
+    - speech_end: Thời điểm giọng đọc dứt lời (bỏ qua khoảng lặng đuôi file).
+    - total_duration: Tổng độ dài file âm thanh.
     """
-    clean_lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    p = Path(wav_path)
+    if not p.exists() or p.stat().st_size < 1000:
+        return 0.15, 5.0, 5.0
+
+    try:
+        with wave.open(str(p), "rb") as wf:
+            rate = wf.getframerate()
+            frames = wf.getnframes()
+            data = wf.readframes(frames)
+            
+            # Chuẩn hóa về 16-bit mono để tính RMS
+            sampwidth = wf.getsampwidth()
+            if sampwidth == 2:
+                samples = struct.unpack(f"<{frames}h", data)
+            else:
+                return 0.15, frames / float(rate), frames / float(rate)
+
+        total_dur = frames / float(rate)
+        if total_dur <= 0:
+            return 0.15, 5.0, 5.0
+
+        chunk_size = int(rate * 0.025)  # Cửa sổ 25ms
+        threshold = 500  # Ngưỡng RMS xác định có tiếng nói
+
+        # 1. Tìm điểm bắt đầu cất tiếng
+        speech_start = 0.15
+        for i in range(0, len(samples) - chunk_size, chunk_size):
+            chunk = samples[i:i + chunk_size]
+            rms = (sum(s * s for s in chunk) / float(len(chunk))) ** 0.5
+            if rms > threshold:
+                speech_start = i / float(rate)
+                break
+
+        # 2. Tìm điểm kết thúc tiếng nói
+        speech_end = total_dur - 0.1
+        for i in range(len(samples) - chunk_size, 0, -chunk_size):
+            chunk = samples[i:i + chunk_size]
+            rms = (sum(s * s for s in chunk) / float(len(chunk))) ** 0.5
+            if rms > threshold:
+                speech_end = (i + chunk_size) / float(rate)
+                break
+
+        speech_start = max(0.05, round(speech_start, 2))
+        speech_end = min(total_dur, max(speech_start + 0.5, round(speech_end, 2)))
+        return speech_start, speech_end, round(total_dur, 2)
+
+    except Exception:
+        return 0.15, 5.0, 5.0
+
+
+def split_quote_into_rhythmic_phrases(text: str) -> List[Tuple[str, float]]:
+    """
+    Tách câu quote thành các cụm từ nhịp điệu (3 - 5 từ/cụm) kèm trọng số ngắt nghỉ tự nhiên.
+    Trả về: List[(cụm_từ, độ_dài_nghỉ_sau_cụm_giây)]
+    """
+    clean_text = strip_emotion_markers(text)
+    clean_lines = [l.strip() for l in clean_text.splitlines() if l.strip()]
     if not clean_lines:
         return []
 
-    raw_chunks: List[str] = []
+    raw_items: List[Tuple[str, float]] = []
     for line in clean_lines:
-        # Tách theo các dấu ngắt câu tự nhiên: phẩy, chấm phẩy, hai chấm, gạch ngang
-        parts = re.split(r"[,;:\-—–]+", line)
-        for p in parts:
-            p = p.strip()
-            if p:
-                raw_chunks.append(p)
+        # Tách theo các dấu câu ngắt nhịp tự nhiên: phẩy, chấm phẩy, chấm, gạch ngang
+        tokens = re.split(r"([,;:\.\!\?\-—–]+)", line)
+        temp_phrase = ""
+        for i in range(0, len(tokens), 2):
+            text_part = tokens[i].strip()
+            punct_part = tokens[i + 1] if i + 1 < len(tokens) else ""
+            if not text_part:
+                continue
+            
+            pause = 0.1
+            if any(p in punct_part for p in [".", "!", "?", "…"]):
+                pause = 0.45
+            elif any(p in punct_part for p in [",", "—", "–", "-"]):
+                pause = 0.28
+            elif any(p in punct_part for p in [";", ":"]):
+                pause = 0.32
 
-    phrases: List[str] = []
-    for chunk in raw_chunks:
-        words = chunk.split()
+            raw_items.append((text_part, pause))
+
+    phrases: List[Tuple[str, float]] = []
+    for text_part, pause in raw_items:
+        words = text_part.split()
         if len(words) <= 5:
-            phrases.append(" ".join(words))
+            phrases.append((" ".join(words), pause))
         else:
             step = 4 if len(words) >= 7 else 3
             for i in range(0, len(words), step):
                 sub = " ".join(words[i:i + step])
                 if sub:
-                    phrases.append(sub)
+                    sub_pause = pause if (i + step >= len(words)) else 0.08
+                    phrases.append((sub, sub_pause))
 
-    return phrases if phrases else [text.strip()]
+    if not phrases:
+        phrases = [(clean_text, 0.3)]
+
+    return phrases
 
 
 def generate_kinetic_ass(
@@ -58,36 +146,51 @@ def generate_kinetic_ass(
     voice_duration: float,
     video_duration: float,
     output_ass_path: Path | str,
-    font_name: str = "Be Vietnam Pro"
+    font_name: str = "Be Vietnam Pro",
+    voice_wav_path: Optional[Path | str] = None
 ) -> Path:
     """
-    Tạo file phụ đề ASS động (Kinetic Pop Typography):
-    - Từng cụm từ xuất hiện lớn, nổi bật ở giữa màn hình đồng bộ theo giọng đọc.
-    - Cuối video (sau khi giọng đọc kết thúc): Hiển thị toàn bộ câu quote trọn vẹn để người xem suy ngẫm.
+    Tạo file phụ đề ASS động (Kinetic Pop Typography) đồng bộ chính xác với Voice:
+    - Sử dụng phân tích biên độ sóng âm thanh thật (acoustic boundary analysis) để khớp chữ đúng khoảnh khắc cất giọng.
+    - Từng cụm từ (3-5 từ) xuất hiện lớn, nổi bật ở giữa màn hình theo nhịp giọng đọc.
+    - Cuối video: Hiển thị toàn bộ câu quote trọn vẹn để người xem suy ngẫm sâu sắc.
     - Chữ ký @signature hiển thị thanh lịch ở safe-zone bên dưới.
     """
     out_p = Path(output_ass_path)
     out_p.parent.mkdir(parents=True, exist_ok=True)
 
-    phrases = split_quote_into_rhythmic_phrases(quote_text)
-    if not phrases:
-        phrases = [quote_text]
+    # 1. Phân tích khoảng cất giọng thật từ file âm thanh
+    speech_start, speech_end, actual_dur = 0.18, max(1.0, voice_duration - 0.2), voice_duration
+    if voice_wav_path and Path(voice_wav_path).exists():
+        speech_start, speech_end, actual_dur = get_audio_acoustic_bounds(voice_wav_path)
 
-    # Tính toán thời lượng cho từng cụm dựa trên tỷ lệ từ
-    total_words = sum(max(1, len(p.split())) for p in phrases)
-    dur_per_word = (voice_duration - 0.2) / max(1, total_words)
+    # 2. Tách cụm từ và loại bỏ các ký hiệu chỉ thị cảm xúc
+    phrase_tuples = split_quote_into_rhythmic_phrases(quote_text)
+    if not phrase_tuples:
+        phrase_tuples = [(strip_emotion_markers(quote_text), 0.3)]
+
+    # 3. Tính toán trọng số phát âm cho từng cụm từ dựa trên số ký tự và thời gian ngắt nghỉ
+    weights = []
+    for phrase, pause in phrase_tuples:
+        char_weight = max(2, len(phrase.strip()))
+        total_weight = char_weight + (pause * 24.0)
+        weights.append(total_weight)
+
+    sum_weights = max(1.0, sum(weights))
+    spoken_window = max(1.0, speech_end - speech_start)
 
     events: List[str] = []
-    curr_time = 0.0
+    # Điểm bắt đầu có 60ms đón đầu thị giác để mắt kịp bắt chữ đúng lúc tai nghe
+    curr_time = max(0.0, speech_start - 0.06)
 
-    for i, phrase in enumerate(phrases):
-        w_count = max(1, len(phrase.split()))
-        p_dur = w_count * dur_per_word
-        p_dur = max(0.8, p_dur)
+    for i, (phrase, pause) in enumerate(phrase_tuples):
+        portion = weights[i] / sum_weights
+        p_dur = portion * spoken_window
+        p_dur = max(0.45, p_dur)
         end_time = curr_time + p_dur
 
-        if i == len(phrases) - 1:
-            end_time = max(end_time, voice_duration + 0.2)
+        if i == len(phrase_tuples) - 1:
+            end_time = max(end_time, speech_end + 0.15)
 
         start_str = format_ass_time(curr_time)
         end_str = format_ass_time(end_time)
@@ -99,19 +202,19 @@ def generate_kinetic_ass(
         else:
             formatted_text = phrase
 
-        # Hiệu ứng mờ dần nhẹ nhàng (fade in 100ms, fade out 60ms)
+        # Hiệu ứng chuyển động chữ: Hiện mượt mà (fade in 80ms, fade out 45ms)
         events.append(
-            f"Dialogue: 0,{start_str},{end_str},QuotePhrase,,0,0,0,,{{\\fad(100,60)}}{formatted_text}"
+            f"Dialogue: 0,{start_str},{end_str},QuotePhrase,,0,0,0,,{{\\fad(80,45)}}{formatted_text}"
         )
         curr_time = end_time
 
-    # Giai đoạn cuối: Hiển thị trọn vẹn câu quote lắng đọng
-    full_start = max(curr_time, voice_duration + 0.2)
+    # 4. Giai đoạn kết: Hiển thị trọn vẹn câu quote lắng đọng (Full Quote Linger Card)
+    full_start = max(curr_time, speech_end + 0.3)
     if full_start < video_duration:
         full_start_str = format_ass_time(full_start)
         full_end_str = format_ass_time(video_duration)
 
-        clean_full = " ".join(quote_text.strip().split())
+        clean_full = strip_emotion_markers(quote_text)
         full_words = clean_full.split()
         if len(full_words) > 6:
             n = len(full_words)
@@ -122,10 +225,10 @@ def generate_kinetic_ass(
             full_multiline = clean_full
 
         events.append(
-            f"Dialogue: 0,{full_start_str},{full_end_str},FullQuoteStyle,,0,0,0,,{{\\fad(220,100)}}“{full_multiline}”"
+            f"Dialogue: 0,{full_start_str},{full_end_str},FullQuoteStyle,,0,0,0,,{{\\fad(200,100)}}“{full_multiline}”"
         )
 
-    # Hiển thị chữ ký video
+    # 5. Hiển thị chữ ký video (@kênh)
     if signature and signature.strip():
         sig_clean = signature.strip()
         events.append(
@@ -133,7 +236,7 @@ def generate_kinetic_ass(
         )
 
     ass_template = f"""[Script Info]
-Title: TikTok Quote Voice - Kinetic Pop Subtitle
+Title: TikTok Quote Voice - Precise Acoustic Kinetic Subtitles
 ScriptType: v4.00+
 WrapStyle: 0
 ScaledBorderAndShadow: yes
@@ -142,8 +245,8 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: QuotePhrase,{font_name},78,&H00FFFFFF,&H000000FF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,1,6.0,3.0,5,80,80,0,1
-Style: FullQuoteStyle,{font_name},52,&H00F8FAFC,&H000000FF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,1,5.0,2.5,5,80,80,0,1
+Style: QuotePhrase,{font_name},80,&H00FFFFFF,&H000000FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,6.5,3.2,5,80,80,0,1
+Style: FullQuoteStyle,{font_name},52,&H00F8FAFC,&H000000FF,&H00000000,&HA0000000,-1,0,0,0,100,100,0,0,1,5.2,2.8,5,80,80,0,1
 Style: SigStyle,{font_name},32,&H0038BDF8,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2.5,1.2,2,80,80,220,1
 
 [Events]

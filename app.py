@@ -218,9 +218,9 @@ st.markdown(
 # KHỞI TẠO SESSION STATE
 # ==============================================================================
 if "quote_text" not in st.session_state:
-    st.session_state.quote_text = "Hành trình vạn dặm luôn bắt đầu bằng một bước chân đầu tiên."
+    st.session_state.quote_text = "(thở dài nhẹ) Con à, cuộc đời này không có con đường nào bằng phẳng cả. Hãy vững lòng."
 if "selected_voice" not in st.session_state:
-    st.session_state.selected_voice = "NamMinh"
+    st.session_state.selected_voice = "NguoiCha"
 if "bg_media" not in st.session_state:
     st.session_state.bg_media = "assets/backgrounds/default_night.jpg"
 if "signature" not in st.session_state:
@@ -332,6 +332,8 @@ with col_controls:
             f"</div>",
             unsafe_allow_html=True
         )
+        if chosen_voice in ["NguoiCha", "Charon"]:
+            st.caption("💡 **Mẹo**: Bạn có thể chèn các chỉ thị cảm xúc trong ngoặc đơn như `(thở dài nhẹ) Con à... (nghẹn ngào) hãy vững lòng.` Giọng AI sẽ diễn đạt qua hơi thở và ngữ điệu mà không đọc to phần trong ngoặc!")
 
         col_v_btn, col_v_audio = st.columns([1.0, 1.8])
         with col_v_btn:

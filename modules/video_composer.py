@@ -91,7 +91,7 @@ def compose_quote_video(
         target_dur = (voice_dur + padding) if voice_dur > 0 else 10.0
         video_duration = max(5.0, min(target_dur, 60.0))
 
-    # 3. Tạo file phụ đề động Kinetic Phrase Pop khớp chuẩn theo nhịp giọng đọc
+    # 3. Tạo file phụ đề động Kinetic Phrase Pop khớp chuẩn theo nhịp sóng âm thanh thật
     tmp_ass_path = out_file.parent / f"kinetic_{out_file.stem}.ass"
     generate_kinetic_ass(
         quote_text=quote,
@@ -99,7 +99,8 @@ def compose_quote_video(
         voice_duration=voice_dur,
         video_duration=video_duration,
         output_ass_path=tmp_ass_path,
-        font_name="Be Vietnam Pro"
+        font_name="Be Vietnam Pro",
+        voice_wav_path=voice_wav_path
     )
 
     escaped_ass = str(tmp_ass_path.resolve()).replace("\\", "/").replace(":", "\\:")
