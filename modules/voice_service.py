@@ -118,10 +118,11 @@ def synthesize_voice(
     if not key:
         raise ValueError("Chưa tìm thấy Gemini API Key! Vui lòng cấu hình trong file .env hoặc nhập trực tiếp.")
 
-    # Tạo cache key
+    # Tạo cache key (kèm version để xóa bỏ các cache cũ có chứa câu lệnh)
     cache_dir = Path("temp/voice_cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
-    hash_str = hashlib.sha256(f"{voice_name}:{clean_text}".encode("utf-8")).hexdigest()[:16]
+    cache_ver = "v3_pure_tts"
+    hash_str = hashlib.sha256(f"{cache_ver}:{voice_name}:{clean_text}".encode("utf-8")).hexdigest()[:16]
     cached_file = cache_dir / f"voice_{voice_name}_{hash_str}.wav"
 
     if use_cache and cached_file.exists() and cached_file.stat().st_size > 1000:

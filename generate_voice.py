@@ -81,9 +81,6 @@ def generate_voice(
     else:  # Charon hoặc mặc định
         style_desc = "chất giọng nam trầm, phong thái đĩnh đạc, đằm thắm, truyền cảm hứng và uy quyền"
 
-    prompt = (
-        f"Hãy đọc đoạn văn sau bằng tiếng Việt với {style_desc}: \"{text}\""
-    )
 
     try:
         response = client.models.generate_content(
